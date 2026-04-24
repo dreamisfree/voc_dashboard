@@ -1,0 +1,10 @@
+*.csv
+data.json
+__pycache__/
+*.xlsx
+debug_*.py
+debug_*.txt
+cols.txt
+kw_check.txt
+dashboard_new.py
+voc_dashboard_methodology.html
