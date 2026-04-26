@@ -1,9 +1,18 @@
-html = r"""<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<title>VOC 인사이트 대시보드</title>
-<style>
+"""
+빌드 스크립트: style.css / app.js / template.html 을 각각 생성합니다.
+수정 흐름:
+  1. 이 파일의 CSS_CONTENT / JS_CONTENT / HTML_TEMPLATE 섹션을 편집
+  2. python write_dashboard.py  →  style.css, app.js, template.html 생성
+  3. python embed_data.py --password <비번>  →  dashboard.html 빌드
+  4. git push  →  GitHub Pages 배포
+"""
+
+BASE = 'D:/voc_20260424'
+
+# ──────────────────────────────────────────────
+# 1. CSS  (style.css)
+# ──────────────────────────────────────────────
+CSS_CONTENT = """\
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "나눔고딕", sans-serif; background: #f0f2f7; color: #222; min-width: 320px; }
 /* ── 로그인 ── */
@@ -72,31 +81,12 @@ header span { margin-left: auto; font-size: .78rem; color: #8888aa; }
 .tag.product { background: #fff8e1; color: #e65100; }
 .divider { border: none; border-top: 1px dashed #e8e8e8; margin: 18px 0; }
 .no-data { color: #ccc; font-size: .85rem; text-align: center; padding: 40px 0; }
-</style>
-</head>
-<body>
+"""
 
-<!-- 로그인 화면 -->
-<div id="loginOverlay">
-  <div class="login-box">
-    <h2>VOC 인사이트 대시보드</h2>
-    <p>이랜드 패션사업부 · 아이템별 고객 리뷰 분석</p>
-    <input type="password" id="pwInput" placeholder="비밀번호를 입력하세요" onkeydown="if(event.key==='Enter')unlock()">
-    <button id="unlockBtn" onclick="unlock()">확인</button>
-    <div id="pwLoading"></div>
-    <div id="pwError"></div>
-  </div>
-</div>
-
-<!-- 대시보드 -->
-<div id="app">
-  <header><h1>VOC 인사이트 대시보드</h1><span>이랜드 패션사업부 · 아이템별 고객 리뷰 분석</span></header>
-  <div class="brand-tabs" id="brandTabs"></div>
-  <div class="main" id="mainContent"></div>
-</div>
-
-<script>
-const VOC_ENCRYPTED = null;
+# ──────────────────────────────────────────────
+# 2. JS 로직  (app.js)
+# ──────────────────────────────────────────────
+JS_CONTENT = """\
 let VOC_DATA = {"brands":[],"data":{}};
 let currentBrand=null,currentCat=null,currentItem=null;
 
@@ -224,10 +214,64 @@ function selectItem(i){
   renderMain();
 }
 function init(){if(!VOC_DATA.brands?.length)return;currentBrand=VOC_DATA.brands[0];renderTabs();renderMain();}
-</script>
-</body>
-</html>"""
+"""
 
-with open('D:/voc_20260424/dashboard.html', 'w', encoding='utf-8') as f:
-    f.write(html)
-print('OK')
+# ──────────────────────────────────────────────
+# 3. HTML 골격  (template.html)
+# ──────────────────────────────────────────────
+HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>VOC 인사이트 대시보드</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 로그인 화면 -->
+<div id="loginOverlay">
+  <div class="login-box">
+    <h2>VOC 인사이트 대시보드</h2>
+    <p>이랜드 패션사업부 · 아이템별 고객 리뷰 분석</p>
+    <input type="password" id="pwInput" placeholder="비밀번호를 입력하세요" onkeydown="if(event.key==='Enter')unlock()">
+    <button id="unlockBtn" onclick="unlock()">확인</button>
+    <div id="pwLoading"></div>
+    <div id="pwError"></div>
+  </div>
+</div>
+
+<!-- 대시보드 -->
+<div id="app">
+  <header><h1>VOC 인사이트 대시보드</h1><span>이랜드 패션사업부 · 아이템별 고객 리뷰 분석</span></header>
+  <div class="brand-tabs" id="brandTabs"></div>
+  <div class="main" id="mainContent"></div>
+</div>
+
+<script>
+const VOC_ENCRYPTED = {};
+</script>
+<script src="app.js"></script>
+</body>
+</html>
+"""
+
+# ──────────────────────────────────────────────
+# 파일 쓰기
+# ──────────────────────────────────────────────
+import os
+
+files = {
+    'style.css': CSS_CONTENT,
+    'app.js': JS_CONTENT,
+    'template.html': HTML_TEMPLATE,
+}
+
+for name, content in files.items():
+    path = os.path.join(BASE, name)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print(f'OK: {name} ({len(content.splitlines())}줄)')
+
+print()
+print('다음 단계: python embed_data.py --password <비번>')

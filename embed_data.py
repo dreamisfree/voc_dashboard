@@ -27,7 +27,7 @@ data_str = json.dumps(data, ensure_ascii=False)
 
 encrypted_str = encrypt_json(data_str, args.password)
 
-with open('D:/voc_20260424/dashboard.html', encoding='utf-8') as f:
+with open('D:/voc_20260424/template.html', encoding='utf-8') as f:
     html = f.read()
 
 new_line = 'const VOC_ENCRYPTED = ' + encrypted_str + ';'
@@ -38,4 +38,4 @@ if html_new == html:
 else:
     with open('D:/voc_20260424/dashboard.html', 'w', encoding='utf-8') as f:
         f.write(html_new)
-    print('OK: 암호화 완료 → dashboard.html 업데이트')
+    print('OK: 암호화 완료 → dashboard.html 빌드 완료')
