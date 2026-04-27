@@ -396,6 +396,9 @@ def process(input_path: str, output_path: str) -> None:
     for col in ["REVIEW_TEXT", "STYLE_CODE", "CHANNEL"]:
         df[col] = df[col].fillna("").astype(str)
 
+    # 브랜드명 정규화 (BRAND_NAME_ALIAS로 병합 — 예: 슈펜키즈 → 슈펜)
+    df["BRAND_NAME"] = df["BRAND_NAME"].apply(lambda b: BRAND_NAME_ALIAS.get(b, b))
+
     # 브랜드명 불용어 등록
     brand_names = df["BRAND_NAME"].dropna().unique().tolist()
     init_stopwords(brand_names)
@@ -439,11 +442,19 @@ def process(input_path: str, output_path: str) -> None:
             item_rows = brand_valid[brand_valid["아이템카테고리"] == item]
             item_total = len(item_rows)
 
-            # 아이템 코드 수집 (STYLE_CODE에서 추출)
-            is_hufan = (brand == "슈펜")
-            raw_codes = item_rows["STYLE_CODE"].apply(
-                lambda s: s[2:5] if (is_hufan and len(s) >= 5) else (s[2:4] if len(s) >= 4 else "")
-            )
+            # 아이템 코드 수집 (STYLE_CODE에서 추출, 브랜드별 위치 다름)
+            if brand == "슈펜":
+                raw_codes = item_rows["STYLE_CODE"].apply(
+                    lambda s: s[2:5] if len(s) >= 5 else ""
+                )
+            elif brand == "미쏘":
+                raw_codes = item_rows["STYLE_CODE"].apply(
+                    lambda s: s[3:5] if len(s) >= 5 else ""
+                )
+            else:
+                raw_codes = item_rows["STYLE_CODE"].apply(
+                    lambda s: s[2:4] if len(s) >= 4 else ""
+                )
             item_codes = sorted(set(c for c in raw_codes if c))
 
             cat_list = []

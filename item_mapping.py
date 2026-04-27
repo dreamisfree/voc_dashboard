@@ -292,6 +292,8 @@ def get_item_category(brand_name: str, style_code: str) -> str:
 
     if resolved == "슈펜":
         item_code = style_code[2:5]
+    elif resolved == "미쏘":
+        item_code = style_code[3:5]
     else:
         item_code = style_code[2:4]
 
