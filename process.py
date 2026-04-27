@@ -499,24 +499,22 @@ def process(input_path: str, output_path: str) -> None:
                     continue
 
                 # 감성 분류별 pool 배정
-                # - 중립: 감성 키워드 없지만 카테고리 내용 있는 리뷰 → 양쪽 모두 포함
-                # - 혼합 동점(neg==pos): 방향 불명확 → 양쪽 모두 포함
-                # - 혼합 부정 우세: 부정 pool만
-                # - 혼합 긍정 우세: 긍정 pool만
                 pure_neg = cat_rows[cat_rows["감성"] == "부정"]
                 pure_pos = cat_rows[cat_rows["감성"] == "긍정"]
                 neutral  = cat_rows[cat_rows["감성"] == "중립"]
                 mixed    = cat_rows[cat_rows["감성"] == "혼합"]
 
-                def _neg_pos_counts(t: str) -> tuple[int, int]:
-                    return _kw_counts(t)
+                mixed_neg_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _kw_counts(t)[0] > _kw_counts(t)[1])]
+                mixed_pos_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _kw_counts(t)[1] > _kw_counts(t)[0])]
+                mixed_tied    = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _kw_counts(t)[0] == _kw_counts(t)[1])]
 
-                mixed_neg_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[0] > _neg_pos_counts(t)[1])]
-                mixed_pos_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[1] > _neg_pos_counts(t)[0])]
-                mixed_tied    = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[0] == _neg_pos_counts(t)[1])]
+                # 비중 계산용: 명확한 감성 리뷰만 (중립·동점 제외)
+                cat_neg = pd.concat([pure_neg, mixed_neg_dom])
+                cat_pos = pd.concat([pure_pos, mixed_pos_dom])
 
-                cat_neg = pd.concat([pure_neg, mixed_neg_dom, mixed_tied, neutral])
-                cat_pos = pd.concat([pure_pos, mixed_pos_dom, mixed_tied, neutral])
+                # 대표 리뷰 선정용: 중립·동점 혼합도 포함 (이탈 방지)
+                cat_neg_pick = pd.concat([pure_neg, mixed_neg_dom, mixed_tied, neutral])
+                cat_pos_pick = pd.concat([pure_pos, mixed_pos_dom, mixed_tied, neutral])
                 cat_total = len(cat_rows)
                 neg_ratio = round(len(cat_neg) / cat_total * 100, 1)
 
@@ -525,8 +523,8 @@ def process(input_path: str, output_path: str) -> None:
                     "리뷰수": cat_total,
                     "부정비중": neg_ratio,
                     "긍정비중": round(100 - neg_ratio, 1),
-                    "대표부정리뷰": pick_voices(cat_neg, "부정", cat_name, n=20),
-                    "대표긍정리뷰": pick_voices(cat_pos, "긍정", cat_name, n=20),
+                    "대표부정리뷰": pick_voices(cat_neg_pick, "부정", cat_name, n=20),
+                    "대표긍정리뷰": pick_voices(cat_pos_pick, "긍정", cat_name, n=20),
                 })
 
             cat_list.sort(key=lambda x: -x["리뷰수"])
