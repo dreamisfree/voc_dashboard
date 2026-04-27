@@ -403,20 +403,31 @@ def pick_voices(rows: pd.DataFrame, sentiment: str, cat_name: str, n: int = 5) -
 # 메인
 # ---------------------------------------------------------------------------
 
-def process(input_path: str, output_path: str) -> None:
+def _load_csv(path: str) -> pd.DataFrame:
+    """인코딩·구분자 자동 감지 CSV 로더."""
     for enc in ("utf-8-sig", "cp949", "euc-kr"):
         for sep in (",", "\t"):
             try:
-                df = pd.read_csv(input_path, encoding=enc, sep=sep)
+                df = pd.read_csv(path, encoding=enc, sep=sep, low_memory=False)
                 if len(df.columns) > 2:
-                    break
+                    return df
             except (UnicodeDecodeError, ValueError):
                 continue
-        else:
-            continue
-        break
-    else:
-        raise ValueError(f"CSV 인코딩/구분자 감지 실패: {input_path}")
+    raise ValueError(f"CSV 인코딩/구분자 감지 실패: {path}")
+
+
+def process(input_path: str, output_path: str) -> None:
+    df = _load_csv(input_path)
+
+    # 미쏘·슈펜 보조 파일이 있으면 해당 브랜드 행을 교체
+    import os
+    supplement_path = os.path.join(os.path.dirname(os.path.abspath(input_path)), "미쏘, 슈펜.csv")
+    if os.path.exists(supplement_path):
+        sup = _load_csv(supplement_path)
+        sup_brands = sup["BRAND_NAME"].dropna().unique().tolist()
+        df = df[~df["BRAND_NAME"].isin(sup_brands)].copy()
+        df = pd.concat([df, sup], ignore_index=True)
+        print(f"보조파일 로드: {supplement_path} ({len(sup):,}건, 브랜드: {sup_brands})")
 
     # 시즌 컬럼 자동 감지
     season_col = next(
