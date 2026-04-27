@@ -321,7 +321,7 @@ def _category_relevance_score(text: str, cat_name: str) -> float:
 def _length_bonus(text: str) -> float:
     """길이 가점·감점."""
     length = len(text)
-    if length < 20:
+    if length < 12:
         return -15.0
     if 40 <= length <= 150:
         return 5.0
@@ -334,16 +334,34 @@ def _is_spam(text: str) -> bool:
 
 
 def _is_short_uninformative(text: str) -> bool:
-    """단문 무정보 리뷰 여부 (20자 미만 + 단순 패턴)."""
-    return len(text) < 20 or bool(_SHORT_REVIEW_PATTERN.match(text.strip()))
+    """단문 무정보 리뷰 여부 (12자 미만 + 단순 패턴)."""
+    return len(text) < 12 or bool(_SHORT_REVIEW_PATTERN.match(text.strip()))
 
 
-def score_voice(text: str, cat_name: str) -> float:
-    """최종 선정 점수 = 인사이트*2.0 + 생생함*1.5 + 카테고리적합도*1.0 + 길이가점."""
+def _frequency_bonus(text: str, pool_texts: list[str]) -> float:
+    """pool 내 다른 리뷰에서 자주 언급되는 어휘 포함 시 가점. 최대 8점."""
+    if not pool_texts:
+        return 0.0
+    words = re.findall(r"[가-힣]{2,5}", text)
+    words = [w for w in words if w not in STOPWORDS]
+    if not words:
+        return 0.0
+    n = len(pool_texts)
+    freqs = sorted(
+        [sum(1 for t in pool_texts if w in t) / n for w in words],
+        reverse=True,
+    )[:3]
+    return min(sum(freqs) / len(freqs) * 20, 8.0)
+
+
+def score_voice(text: str, cat_name: str, pool_texts: list[str] | None = None) -> float:
+    """최종 선정 점수 = 인사이트*1.2 + 생생함*1.5 + 카테고리적합도*1.0 + 빈도보너스 + 길이가점."""
+    freq = _frequency_bonus(text, pool_texts) if pool_texts else 0.0
     return (
-        _insight_score(text) * 2.0
+        _insight_score(text) * 1.2
         + _vividness_score(text) * 1.5
         + _category_relevance_score(text, cat_name) * 1.0
+        + freq
         + _length_bonus(text)
     )
 
@@ -358,9 +376,11 @@ def pick_voices(rows: pd.DataFrame, sentiment: str, cat_name: str, n: int = 5) -
         & ~pool["REVIEW_TEXT"].apply(_is_spam)
     ]
 
+    pool_texts = pool["REVIEW_TEXT"].tolist()
+
     scored = sorted(
         [
-            (score_voice(row["REVIEW_TEXT"], cat_name), len(row["REVIEW_TEXT"]), row)
+            (score_voice(row["REVIEW_TEXT"], cat_name, pool_texts), len(row["REVIEW_TEXT"]), row)
             for _, row in pool.iterrows()
         ],
         key=lambda x: (x[0], x[1]),
@@ -478,15 +498,25 @@ def process(input_path: str, output_path: str) -> None:
                 if len(cat_rows) == 0:
                     continue
 
-                # 혼합 리뷰는 우세한 쪽에만 배정 (양쪽 중복 노출 방지)
-                pure_neg  = cat_rows[cat_rows["감성"] == "부정"]
-                pure_pos  = cat_rows[cat_rows["감성"] == "긍정"]
-                mixed     = cat_rows[cat_rows["감성"] == "혼합"]
-                mixed_neg = mixed[mixed["REVIEW_TEXT"].apply(is_neg_dominant)]
-                mixed_pos = mixed[~mixed["REVIEW_TEXT"].apply(is_neg_dominant)]
+                # 감성 분류별 pool 배정
+                # - 중립: 감성 키워드 없지만 카테고리 내용 있는 리뷰 → 양쪽 모두 포함
+                # - 혼합 동점(neg==pos): 방향 불명확 → 양쪽 모두 포함
+                # - 혼합 부정 우세: 부정 pool만
+                # - 혼합 긍정 우세: 긍정 pool만
+                pure_neg = cat_rows[cat_rows["감성"] == "부정"]
+                pure_pos = cat_rows[cat_rows["감성"] == "긍정"]
+                neutral  = cat_rows[cat_rows["감성"] == "중립"]
+                mixed    = cat_rows[cat_rows["감성"] == "혼합"]
 
-                cat_neg = pd.concat([pure_neg, mixed_neg])
-                cat_pos = pd.concat([pure_pos, mixed_pos])
+                def _neg_pos_counts(t: str) -> tuple[int, int]:
+                    return _kw_counts(t)
+
+                mixed_neg_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[0] > _neg_pos_counts(t)[1])]
+                mixed_pos_dom = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[1] > _neg_pos_counts(t)[0])]
+                mixed_tied    = mixed[mixed["REVIEW_TEXT"].apply(lambda t: _neg_pos_counts(t)[0] == _neg_pos_counts(t)[1])]
+
+                cat_neg = pd.concat([pure_neg, mixed_neg_dom, mixed_tied, neutral])
+                cat_pos = pd.concat([pure_pos, mixed_pos_dom, mixed_tied, neutral])
                 cat_total = len(cat_rows)
                 neg_ratio = round(len(cat_neg) / cat_total * 100, 1)
 
