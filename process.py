@@ -366,6 +366,36 @@ def score_voice(text: str, cat_name: str, pool_texts: list[str] | None = None) -
     )
 
 
+def pick_shoplink_voices(item_rows: pd.DataFrame, n: int = 10) -> list:
+    """샵링크 채널 상품품질 이슈 대표 리뷰 선정."""
+    pool = item_rows[
+        (item_rows["CHANNEL"].str.lower() == "shoplink")
+        & item_rows["감성"].isin(["부정", "혼합"])
+        & item_rows["_categories"].apply(lambda c: "상품품질" in c)
+        & ~item_rows["REVIEW_TEXT"].apply(_is_short_uninformative)
+        & ~item_rows["REVIEW_TEXT"].apply(_is_spam)
+    ]
+    if pool.empty:
+        return []
+    pool_texts = pool["REVIEW_TEXT"].tolist()
+    scored = sorted(
+        [(score_voice(row["REVIEW_TEXT"], "상품품질", pool_texts), len(row["REVIEW_TEXT"]), row)
+         for _, row in pool.iterrows()],
+        key=lambda x: (x[0], x[1]),
+        reverse=True,
+    )
+    result = []
+    for _, _, row in scored[:n]:
+        product_name = row.get("PRODUCT_NAME", "")
+        result.append({
+            "텍스트": row["REVIEW_TEXT"],
+            "상품명": product_name if pd.notna(product_name) else "",
+            "시즌": row["시즌"] if pd.notna(row.get("시즌")) else None,
+            "아이템카테고리": row["아이템카테고리"],
+        })
+    return result
+
+
 def pick_voices(rows: pd.DataFrame, sentiment: str, cat_name: str, n: int = 5) -> list:
     """긍정 또는 부정 리뷰에서 대표 n개 선정. shoplink 채널·단문·도배 제외."""
     pool = rows[rows["CHANNEL"].str.lower() != "shoplink"]
@@ -529,14 +559,17 @@ def process(input_path: str, output_path: str) -> None:
                 cat_total = len(cat_rows)
                 neg_ratio = round(len(cat_neg) / cat_total * 100, 1)
 
-                cat_list.append({
+                entry = {
                     "카테고리명": cat_name,
                     "리뷰수": cat_total,
                     "부정비중": neg_ratio,
                     "긍정비중": round(100 - neg_ratio, 1),
                     "대표부정리뷰": pick_voices(cat_neg_pick, "부정", cat_name, n=20),
                     "대표긍정리뷰": pick_voices(cat_pos_pick, "긍정", cat_name, n=20),
-                })
+                }
+                if cat_name == "상품품질":
+                    entry["샵링크품질리뷰"] = pick_shoplink_voices(item_rows, n=10)
+                cat_list.append(entry)
 
             cat_list.sort(key=lambda x: -x["리뷰수"])
 

@@ -120,7 +120,21 @@ function reviewPanelHTML(d){
     <hr class="divider">
     <div class="section-label">긍정 대표 리뷰</div>
     ${pc||'<p class="no-data" style="text-align:left;padding:12px 0">해당 리뷰 없음</p>'}
+    ${shopLinkQualityHTML(cat)}
   </div>`;
+}
+function shopLinkQualityHTML(cat){
+  if(cat.카테고리명!=='상품품질')return'';
+  const reviews=cat.샵링크품질리뷰||[];
+  if(!reviews.length)return'';
+  const cards=reviews.map(r=>{
+    const tags=[
+      r.상품명?`<span class="tag product">${esc(r.상품명)}</span>`:'',
+      r.시즌?`<span class="tag season">${esc(r.시즌)}</span>`:'',
+    ].filter(Boolean).join('');
+    return`<div class="review-card shoplink-q"><div class="review-text">${esc(r.텍스트)}</div><div class="review-meta">${tags}</div></div>`;
+  }).join('');
+  return`<hr class="divider"><div class="section-label shoplink-label">샵링크 품질 이슈 리뷰</div><div class="shoplink-note">교환·반품 채널(shoplink) 중 품질 관련 주요 리뷰</div>${cards}`;
 }
 function rcHTML(r,t){
   const tags=[

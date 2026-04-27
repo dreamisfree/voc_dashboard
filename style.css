@@ -66,3 +66,6 @@ header span { margin-left: auto; font-size: .78rem; color: #8888aa; }
 .tag.product { background: #fff8e1; color: #e65100; }
 .divider { border: none; border-top: 1px dashed #e8e8e8; margin: 18px 0; }
 .no-data { color: #ccc; font-size: .85rem; text-align: center; padding: 40px 0; }
+.shoplink-label { color: #b26a00; }
+.shoplink-note { font-size: .72rem; color: #b8946a; margin: -6px 0 10px; }
+.review-card.shoplink-q { background: #fffbf2; border-left-color: #ffcc80; }
