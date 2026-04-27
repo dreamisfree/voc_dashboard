@@ -523,8 +523,8 @@ def process(input_path: str, output_path: str) -> None:
                 cat_neg = pd.concat([pure_neg, mixed_neg_dom])
                 cat_pos = pd.concat([pure_pos, mixed_pos_dom])
 
-                # 대표 리뷰 선정용: 중립·동점 혼합도 포함 (이탈 방지)
-                cat_neg_pick = pd.concat([pure_neg, mixed_neg_dom, mixed_tied, neutral])
+                # 대표 리뷰 선정용: 동점 혼합은 양쪽 포함, 중립은 긍정 pool에만
+                cat_neg_pick = pd.concat([pure_neg, mixed_neg_dom, mixed_tied])
                 cat_pos_pick = pd.concat([pure_pos, mixed_pos_dom, mixed_tied, neutral])
                 cat_total = len(cat_rows)
                 neg_ratio = round(len(cat_neg) / cat_total * 100, 1)
