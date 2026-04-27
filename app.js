@@ -1,5 +1,7 @@
 let VOC_DATA = {"brands":[],"data":{}};
 let currentBrand=null,currentCat=null,currentItem=null;
+let reviewPage=0;
+const PAGE_SIZE=5;
 
 function b64ToBytes(b64){const bin=atob(b64);const b=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)b[i]=bin.charCodeAt(i);return b;}
 
@@ -90,14 +92,28 @@ function reviewPanelHTML(d){
   const id=d.아이템별?.[currentItem];
   const cat=(id?.피드백카테고리별||[]).find(c=>c.카테고리명===currentCat);
   if(!cat)return`<div class="review-panel"><p class="no-data">카테고리를 선택하세요</p></div>`;
-  const nc=(cat.대표부정리뷰||[]).map(r=>rcHTML(r,'neg')).join('');
-  const pc=(cat.대표긍정리뷰||[]).map(r=>rcHTML(r,'pos')).join('');
+
+  const negAll=cat.대표부정리뷰||[];
+  const posAll=cat.대표긍정리뷰||[];
+  const totalPages=Math.max(1,Math.ceil(Math.max(negAll.length,posAll.length)/PAGE_SIZE));
+  const page=reviewPage%totalPages;
+  const s=page*PAGE_SIZE, e=s+PAGE_SIZE;
+
+  const nc=negAll.slice(s,e).map(r=>rcHTML(r,'neg')).join('');
+  const pc=posAll.slice(s,e).map(r=>rcHTML(r,'pos')).join('');
+
   return `<div class="review-panel">
     <div class="review-panel-title">
       ${esc(currentItem)} &nbsp;›&nbsp; ${esc(currentCat)}
       <span class="badge badge-neg">부정 ${cat.부정비중}%</span>
       <span class="badge badge-pos">긍정 ${cat.긍정비중}%</span>
-      <span style="margin-left:auto;font-size:.76rem;color:#bbb;font-weight:400">${fmt(cat.리뷰수)}건 분석</span>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <span style="font-size:.76rem;color:#bbb;font-weight:400">${fmt(cat.리뷰수)}건 분석</span>
+        <button onclick="nextReviewPage()" style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:#f0f2f7;border:1.5px solid #dde;border-radius:20px;font-size:.78rem;font-weight:700;color:#3f51b5;cursor:pointer;transition:background .15s" onmouseover="this.style.background='#e8eaf6'" onmouseout="this.style.background='#f0f2f7'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+          ${page+1}/${totalPages}
+        </button>
+      </span>
     </div>
     <div class="section-label">부정 대표 리뷰</div>
     ${nc||'<p class="no-data" style="text-align:left;padding:12px 0">해당 리뷰 없음</p>'}
@@ -114,10 +130,11 @@ function rcHTML(r,t){
   ].filter(Boolean).join('');
   return `<div class="review-card ${t}"><div class="review-text">${esc(r.텍스트)}</div><div class="review-meta">${tags}</div></div>`;
 }
-function selectBrand(b){currentBrand=b;currentCat=null;currentItem=null;renderTabs();renderMain();}
-function selectCat(c){currentCat=c;renderMain();}
+function nextReviewPage(){reviewPage++;renderMain();}
+function selectBrand(b){currentBrand=b;currentCat=null;currentItem=null;reviewPage=0;renderTabs();renderMain();}
+function selectCat(c){currentCat=c;reviewPage=0;renderMain();}
 function selectItem(i){
-  currentItem=i;
+  currentItem=i;reviewPage=0;
   const d=VOC_DATA.data?.[currentBrand];
   const itemCats=(d?.아이템별?.[i]?.피드백카테고리별||[]);
   if(!itemCats.some(c=>c.카테고리명===currentCat))

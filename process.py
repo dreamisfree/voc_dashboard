@@ -209,23 +209,71 @@ def remove_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 # 대표 리뷰 선정
 # ---------------------------------------------------------------------------
 
-def score_review(text: str) -> int:
-    score = 0
-    if re.search(r"\d+\s*(번|cm|일|달|개월|년|회|번째|시간)", text):
+# 비유/생생함 어휘
+_VIVID_WORDS = [
+    "실오라기", "포대기", "인생템", "갑이다", "갑임", "영롱", "예술임", "예술이다",
+    "헨젤과", "충격적", "깜짝 놀", "절대 사지 마", "레전드", "미쳤다", "미쳤어",
+]
+
+# 강조 감정어
+_EMPHASIS_WORDS = [
+    "깜짝 놀람", "충격적", "절대 사지 마세요", "영롱함", "예술임",
+    "진짜 너무", "완전 별로", "대박", "실화냐", "말이 안 됨",
+]
+
+# 단문 패턴 (20자 미만 + 내용 없는 리뷰)
+_SHORT_REVIEW_PATTERN = re.compile(
+    r"^(좋아요|좋습니다|좋네요|나빠요|별로예요|별로임|그냥 그래요|그냥그래요|보통이에요"
+    r"|별로|최고|굿|굳|ㅎㅎ|ㅋㅋ|만족|배송 빠르고 상품 좋아요)[!~.]*$"
+)
+
+# 도배 패턴 (동일 문자 5회 이상 반복, 의미 없는 자음/모음)
+_SPAM_PATTERN = re.compile(r"(.){4,}|[ㄱ-ㅎㅏ-ㅣ]{5,}")
+
+
+def _insight_score(text: str) -> float:
+    """인사이트 점수 (Actionable Points) — 최대 10점."""
+    score = 0.0
+    # 비교·대조 (+10): 구체적 비교 대상 존재
+    if re.search(
+        r"(타 브랜드|다른 브랜드|타브랜드|작년 모델|작년에|저번엔|저번에|이전 제품"
+        r"|다른 색상|다른 사이즈|[A-Za-z]\s*사이즈인데|[sSmMlLxX]+\s*사이즈인데"
+        r"|비교|대비|반면|보다 낫|보다 못)",
+        text,
+    ):
+        score += 10
+    # 인과관계 명확성 (+8): 원인+결과 구조
+    if re.search(
+        r"(해서|때문에|탓에|바람에|덕분에|덕에).{1,30}(열림|떨어짐|뜯어짐|터짐"
+        r"|줄어들|늘어나|빠짐|끊어짐|망가짐|흘러내림|불편|좋음|만족)",
+        text,
+    ):
+        score += 8
+    # 수치·환경 정보 (+7)
+    if re.search(
+        r"(\d+\s*(번|cm|kg|회|일|달|개월|년|번째|시간|세탁)"
+        r"|[0-9]+cm|영하|영상|고온|저온|[0-9]+도)",
+        text,
+    ):
+        score += 7
+    # 사후 행동 언급 (+7)
+    if re.search(
+        r"(반품|환불|재구매|깔별로|색별로|버렸|버렸음|지인 추천|선물함"
+        r"|다시는 안|절대 안 사|또 샀|또 구매|또 살|재주문)",
+        text,
+    ):
+        score += 7
+    return min(score, 10.0)
+
+
+def _vividness_score(text: str) -> float:
+    """생생함·비유 점수 (Vividness) — 최대 5점."""
+    score = 0.0
+    if any(w in text for w in _VIVID_WORDS):
+        score += 5
+    if any(w in text for w in _EMPHASIS_WORDS):
         score += 3
-    if re.search(r"(반품|환불|재구매 포기|다시는 안 사|다시는 안살)", text):
-        score += 3
-    if re.search(r"(작년|이전|같은 사이즈|그때|저번)", text):
-        score += 2
-    if re.search(r"(진짜|완전|절대|실망|돈 아까워요|아깝다|짜증)", text):
-        score += 1
-    if re.search(r"^(좋아요|별로예요|배송 빠르고 상품 좋아요)$", text.strip()):
-        score -= 3
-    if len(text) < 30:
-        score -= 2
-    if len(text) > 300:
-        score -= 1  # 너무 긴 리뷰 소폭 감산
-    return score
+    return min(score, 5.0)
 
 
 def _cat_kw_count(text: str, cat_name: str) -> int:
@@ -244,43 +292,62 @@ def _max_other_cat_count(text: str, cat_name: str) -> int:
     )
 
 
-def filter_primary_cat(rows: pd.DataFrame, cat_name: str) -> pd.DataFrame:
-    """해당 카테고리가 주 주제인 리뷰만 남김.
-    내 카테고리 키워드 수 >= 다른 카테고리 최다 키워드 수인 행만 통과."""
-    def is_primary(text: str) -> bool:
-        my_cnt = _cat_kw_count(text, cat_name)
-        other_max = _max_other_cat_count(text, cat_name)
-        return my_cnt >= other_max  # 동점 포함
+def _category_relevance_score(text: str, cat_name: str) -> float:
+    """카테고리 적합도 점수 — 최대 5점."""
+    my_cnt = _cat_kw_count(text, cat_name)
+    other_max = _max_other_cat_count(text, cat_name)
+    if my_cnt >= 2 and my_cnt >= other_max:
+        return 5.0
+    if my_cnt >= 1 and my_cnt >= other_max:
+        return 3.0
+    if my_cnt >= 1:
+        return 1.0
+    return 0.0
 
-    mask = rows["REVIEW_TEXT"].apply(is_primary)
-    filtered = rows[mask]
-    return filtered if len(filtered) > 0 else rows  # 0건이면 폴백
+
+def _length_bonus(text: str) -> float:
+    """길이 가점·감점."""
+    length = len(text)
+    if length < 20:
+        return -15.0
+    if 40 <= length <= 150:
+        return 5.0
+    return 0.0
 
 
-def _direction_score(text: str, sentiment: str) -> int:
-    """감성 방향 일치도 점수: 선정 대상 감성과 일치할수록 높은 점수."""
-    neg_cnt = sum(1 for kw in NEGATIVE_KEYWORDS if kw in text)
-    pos_cnt = sum(1 for kw in POSITIVE_KEYWORDS if kw in text)
-    if sentiment == "부정":
-        return neg_cnt * 2 - pos_cnt
-    else:
-        return pos_cnt * 2 - neg_cnt
+def _is_spam(text: str) -> bool:
+    """도배·무의미 리뷰 여부."""
+    return bool(_SPAM_PATTERN.search(text))
+
+
+def _is_short_uninformative(text: str) -> bool:
+    """단문 무정보 리뷰 여부 (20자 미만 + 단순 패턴)."""
+    return len(text) < 20 or bool(_SHORT_REVIEW_PATTERN.match(text.strip()))
+
+
+def score_voice(text: str, cat_name: str) -> float:
+    """최종 선정 점수 = 인사이트*2.0 + 생생함*1.5 + 카테고리적합도*1.0 + 길이가점."""
+    return (
+        _insight_score(text) * 2.0
+        + _vividness_score(text) * 1.5
+        + _category_relevance_score(text, cat_name) * 1.0
+        + _length_bonus(text)
+    )
 
 
 def pick_voices(rows: pd.DataFrame, sentiment: str, cat_name: str, n: int = 5) -> list:
-    """긍정 또는 부정 리뷰에서 대표 n개 선정. shoplink 채널은 무조건 제외.
-    카테고리 관련성이 높은 리뷰를 우선 선정 (하드 필터 대신 점수 기반)."""
+    """긍정 또는 부정 리뷰에서 대표 n개 선정. shoplink 채널·단문·도배 제외."""
     pool = rows[rows["CHANNEL"].str.lower() != "shoplink"]
+
+    # 단문·도배 사전 제거
+    pool = pool[
+        ~pool["REVIEW_TEXT"].apply(_is_short_uninformative)
+        & ~pool["REVIEW_TEXT"].apply(_is_spam)
+    ]
+
     scored = sorted(
         [
-            (
-                score_review(row["REVIEW_TEXT"])
-                + _direction_score(row["REVIEW_TEXT"], sentiment)
-                + _cat_kw_count(row["REVIEW_TEXT"], cat_name) * 3
-                - _max_other_cat_count(row["REVIEW_TEXT"], cat_name) * 2,
-                len(row["REVIEW_TEXT"]),
-                row,
-            )
+            (score_voice(row["REVIEW_TEXT"], cat_name), len(row["REVIEW_TEXT"]), row)
             for _, row in pool.iterrows()
         ],
         key=lambda x: (x[0], x[1]),
@@ -404,8 +471,8 @@ def process(input_path: str, output_path: str) -> None:
                     "리뷰수": cat_total,
                     "부정비중": neg_ratio,
                     "긍정비중": round(100 - neg_ratio, 1),
-                    "대표부정리뷰": pick_voices(cat_neg, "부정", cat_name),
-                    "대표긍정리뷰": pick_voices(cat_pos, "긍정", cat_name),
+                    "대표부정리뷰": pick_voices(cat_neg, "부정", cat_name, n=20),
+                    "대표긍정리뷰": pick_voices(cat_pos, "긍정", cat_name, n=20),
                 })
 
             cat_list.sort(key=lambda x: -x["리뷰수"])
