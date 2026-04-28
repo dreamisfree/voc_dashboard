@@ -8,3 +8,6 @@ cols.txt
 kw_check.txt
 dashboard_new.py
 voc_dashboard_methodology.html
+
+_*.txt
+_analyze_exclude.py

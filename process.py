@@ -58,22 +58,39 @@ FEEDBACK_CATEGORIES = {
 NEGATIVE_KEYWORDS = [
     # 실망/불만
     "아쉽다", "아쉬워요", "아쉽네요", "아쉬운",
-    "별로예요", "별로네요", "별로다", "별로인",
-    "실망이에요", "실망스러워", "실망했", "최악이에요", "최악이다", "최악",
+    "별로예요", "별로네요", "별로다", "별로인", "좀 별로", "완전 별로",
+    "실망이에요", "실망스러워", "실망했", "실망이네요", "실망했어요",
+    "최악이에요", "최악이다", "최악",
     "불편해요", "불편한", "불편하다", "불만이에요", "불만족",
     # 품질 문제
     "터졌어요", "터졌", "뜯어짐", "뜯겼", "불량이에요", "불량품", "불량",
     "하자가", "하자 있", "오염됐", "변형됐",
-    "줄어들었", "줄어들어요", "줄었어요", "수축됐",  # "줄어들" 완성형으로 교체
+    "줄어들었", "줄어들어요", "줄었어요", "수축됐",
+    # 소재/내구성 불만 (실제 리뷰에서 발견된 미포착 표현)
+    "생각보다 얇", "너무 얇아", "많이 얇", "얇아서 아쉬",
+    "싼티", "싸 보여", "저렴해 보여",
+    "먼지가 잘 붙", "보풀이 생", "보풀이 많",
+    "쉽게 늘어나", "금방 늘어나", "금방 보풀",
+    # 핏/착용감 불만
+    "신축성이 없", "신축성이 부족",
+    "사이즈가 애매", "핏이 애매",
+    # 색상/디자인 불일치
+    "색이 달라요", "색상이 달라요", "색이 다르네요", "실제 색이",
+    "사진이랑 달라", "사진과 달라",
     # 가격/후회
     "아깝다", "아까워요", "돈 아까워", "돈아까워",
     "후회해요", "후회됩니다", "후회했",
+    "가격이 아까워", "비싼 것 같아",
     # 반품/교환 의도
     "환불했", "환불 요청", "반품했", "반품 요청",
     "다시는 안", "절대 안 사", "안 살 것",
     # 기타
-    "기대 이하", "안 좋아요", "안좋아요", "달라요", "오차가",
+    "기대 이하", "기대보다 못", "기대에 못 미",
+    "안 좋아요", "안좋아요", "달라요", "오차가",
 ]
+
+# 품절·재고 부족으로 인한 아쉬움 패턴 — 제품 불만이 아니므로 감성 판정 전 제거
+_STOCK_REGRET_PATTERN = re.compile(r"(품절|솔드아웃|재고\s*없|다른\s*색상|다른\s*컬러|사이즈\s*없).{0,20}(아쉬워|아쉽네|아쉬운|아쉽다)")
 
 POSITIVE_KEYWORDS = [
     "좋아요", "좋습니다", "좋다", "너무 좋아",
@@ -146,7 +163,9 @@ def _kw_counts(text: str) -> tuple[int, int]:
 
 
 def detect_sentiment(text: str) -> str:
-    neg, pos = _kw_counts(text)
+    # 품절·재고 부족 아쉬움은 제품 불만이 아니므로 판정 전 제거
+    t = _STOCK_REGRET_PATTERN.sub("", text)
+    neg, pos = _kw_counts(t)
     if neg == 0 and pos == 0:
         return "중립"
     if neg > 0 and pos == 0:
@@ -354,16 +373,32 @@ def _frequency_bonus(text: str, pool_texts: list[str]) -> float:
     return min(sum(freqs) / len(freqs) * 20, 8.0)
 
 
-def score_voice(text: str, cat_name: str, pool_texts: list[str] | None = None) -> float:
-    """최종 선정 점수 = 인사이트*1.2 + 생생함*1.5 + 카테고리적합도*1.0 + 빈도보너스 + 길이가점."""
+def _neg_intensity_bonus(text: str) -> float:
+    """부정 pool 전용: 부정 키워드 수 기반 가산점. 키워드가 많을수록 진짜 불만 리뷰. 최대 8점."""
+    count = sum(1 for kw in NEGATIVE_KEYWORDS if kw in text)
+    if count >= 3:
+        return 8.0
+    if count == 2:
+        return 4.0
+    if count == 1:
+        return 1.0
+    return 0.0
+
+
+def score_voice(text: str, cat_name: str, pool_texts: list[str] | None = None, is_neg: bool = False) -> float:
+    """최종 선정 점수 = 인사이트*1.2 + 생생함*1.5 + 카테고리적합도*1.0 + 빈도보너스 + 길이가점.
+    is_neg=True 시 부정 강도 가산점 추가."""
     freq = _frequency_bonus(text, pool_texts) if pool_texts else 0.0
-    return (
+    base = (
         _insight_score(text) * 1.2
         + _vividness_score(text) * 1.5
         + _category_relevance_score(text, cat_name) * 1.0
         + freq
         + _length_bonus(text)
     )
+    if is_neg:
+        base += _neg_intensity_bonus(text)
+    return base
 
 
 def pick_shoplink_voices(item_rows: pd.DataFrame, n: int = 10) -> list:
@@ -379,7 +414,7 @@ def pick_shoplink_voices(item_rows: pd.DataFrame, n: int = 10) -> list:
         return []
     pool_texts = pool["REVIEW_TEXT"].tolist()
     scored = sorted(
-        [(score_voice(row["REVIEW_TEXT"], "상품품질", pool_texts), len(row["REVIEW_TEXT"]), row)
+        [(score_voice(row["REVIEW_TEXT"], "상품품질", pool_texts, is_neg=True), len(row["REVIEW_TEXT"]), row)
          for _, row in pool.iterrows()],
         key=lambda x: (x[0], x[1]),
         reverse=True,
@@ -407,10 +442,11 @@ def pick_voices(rows: pd.DataFrame, sentiment: str, cat_name: str, n: int = 5) -
     ]
 
     pool_texts = pool["REVIEW_TEXT"].tolist()
+    is_neg = sentiment == "부정"
 
     scored = sorted(
         [
-            (score_voice(row["REVIEW_TEXT"], cat_name, pool_texts), len(row["REVIEW_TEXT"]), row)
+            (score_voice(row["REVIEW_TEXT"], cat_name, pool_texts, is_neg=is_neg), len(row["REVIEW_TEXT"]), row)
             for _, row in pool.iterrows()
         ],
         key=lambda x: (x[0], x[1]),
